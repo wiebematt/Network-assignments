@@ -56,9 +56,13 @@ mutable_bytes = [2, 4, "3+12", 6, "1+12/3"]
 bufsize = 16
 for line in mutable_bytes:
     if type(line) is int:
-        s.send(str(socket.htons(line)))
+        amount = s.send(str(socket.htons(line)))
     else:
-        s.send(line)
-data = s.recv(bufsize)
-print 'Client received: ', repr(data)  # Close socket to send EOF to server.
+        amount = s.send(line)
+    print str(amount)
+while True:
+    data = s.recv(2048)
+    if not data:
+        break
+    print 'Client received: ', repr(data)  # Close socket to send EOF to server.
 s.close()
