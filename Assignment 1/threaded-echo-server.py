@@ -24,10 +24,8 @@ bufsize = 16
 EXPRESSION_BYTE_COUNT_LENGTH = 2
 
 
-# Handle first read
-
-
 def handler(connect):
+    """ Read byte packed message and solves the equations (no parenthesis interpreted)"""
     string_buffer = connect.recv(bufsize)
     read_bytes = 0
     numpacker = struct.Struct("H")
@@ -51,6 +49,7 @@ def handler(connect):
 
 
 def math_handler(expression_list):
+    """ Solves each equation and returns the answers in the byte packed message format"""
     numpacker = struct.Struct("H")
     return_message = numpacker.pack(len(expression_list))
     for expression in expression_list:

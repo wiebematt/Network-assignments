@@ -1,6 +1,6 @@
 class Parser:
-    def __init__(self, string):
-        self.string = string
+    def __init__(self, expression):
+        self.expression = expression
         self.index = 0
 
     def get_value(self):
@@ -8,10 +8,10 @@ class Parser:
         return value
 
     def get_next(self):
-        return self.string[self.index:self.index + 1]
+        return self.expression[self.index:self.index + 1]
 
     def has_next(self):
-        return self.index < len(self.string)
+        return self.index < len(self.expression)
 
     def parse_expression(self):
         return self.parse_addition_subtraction()
