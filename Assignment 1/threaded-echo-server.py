@@ -1,9 +1,11 @@
 # This example is using Python 2.7
 import socket
 import thread
+import struct
+from Parser import Parser
 
 # Get host name, IP address, and port number.
-import sys
+# import sys
 
 host_name = socket.gethostname()
 host_ip = socket.gethostbyname(host_name)
@@ -19,26 +21,42 @@ s.bind((host_ip, host_port))
 s.listen(5)
 
 bufsize = 16
+EXPRESSION_BYTE_COUNT_LENGTH = 2
 
 
 # Handle first read
 
 
 def handler(connect):
-    first = connect.recv(bufsize)
-    second = connect.recv(bufsize)
-    # third = connect.recv(bufsize)
-    conn.send('First => ' + first + " " + str(sys.getsizeof(first)))
-    conn.send('Second => ' + second + " " + str(sys.getsizeof(second)))
-    # conn.send('Second => ' + third + " " + str(sys.getsizeof(third)))
-    # number_of_expressions = socket.ntohs(int(connect.recv(bufsize)))
-    # for count in range(0, number_of_expressions):
-    #     bytes_sent = conn.send('Echo => ' + str(count))
-    #     print bytes_sent
+    string_buffer = connect.recv(bufsize)
+    read_bytes = 0
+    numpacker = struct.Struct("H")
+    number_of_expressions = numpacker.unpack(string_buffer[0:EXPRESSION_BYTE_COUNT_LENGTH])[0]
+    read_bytes += 2
+    expressions = []
+    for i in range(0, number_of_expressions):
+        #  if we try to read another expression byte count w/o sufficient bytes
+        while EXPRESSION_BYTE_COUNT_LENGTH > len(string_buffer) - read_bytes:
+            string_buffer += connect.recv(bufsize)
+        expression_byte_count = numpacker.unpack(string_buffer[read_bytes: read_bytes + EXPRESSION_BYTE_COUNT_LENGTH])[
+            0]
+        read_bytes += 2
+        #  get all bytes of expression to evaluate
+        while expression_byte_count > len(string_buffer) - read_bytes:
+            string_buffer += connect.recv(bufsize)
+        expressions.append(string_buffer[read_bytes: read_bytes + expression_byte_count])
+        read_bytes += expression_byte_count
+    # print expressions
+    connect.sendall(math_handler(expressions))
 
 
-def math_handler(input):
-    pass
+def math_handler(expression_list):
+    numpacker = struct.Struct("H")
+    return_message = numpacker.pack(len(expression_list))
+    for expression in expression_list:
+        value = Parser(expression).get_value()
+        return_message += numpacker.pack(len(value)) + value
+    return return_message
 
 
 while True:
