@@ -33,7 +33,7 @@ import struct
 
 
 # messages to send to server.
-mutable_bytes = [3, 10, "100*10/5-2", 10, "40/2*20+20", 11, "1000+1000*2"]
+# mutable_bytes = [3, 10, "100*10/5-2", 10, "40/2*20+20", 11, "1000+1000*2"]
 
 
 # Send messages to server over socket.
@@ -90,7 +90,7 @@ def report_data(s, expressions, num_expressions_len=2):
         read_bytes += expression_byte_count
 
 
-def main():
+def main(mutable_bytes):
     data_to_transmit = package_data(mutable_bytes)
     server_name = socket.gethostname()
     print 'Hostname: ', server_name
@@ -103,4 +103,4 @@ def main():
     s.close()
 
 
-main()
+main([3, 3, "1+2", 7, "1/1/1/1", 1, "7"])
