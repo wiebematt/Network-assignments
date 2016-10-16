@@ -57,6 +57,7 @@ if __name__ == '__main__':
     server_port = int(sys.argv[1])
     host_name = socket.gethostname()
     host_ip = socket.gethostbyname(host_name)
+    print host_ip
     s = create_connection(host_ip, server_port)
     s.listen(5)
     print "Listening..."
