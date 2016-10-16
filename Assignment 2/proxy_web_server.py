@@ -28,11 +28,13 @@ def handler(connection):
     lines = receive_request(connection)
     header, url, httpv = lines[0].split(" ")
     if GET_HEADER not in header:
-        connection.sendall(HTTP_BAD_METHOD)
+        connection.sendall(HTTP_BAD_METHOD + '\n'.join(lines[1:]))
+        return
     webserver, target_file = parse_url(url)
     if (webserver, target_file) in CACHE.keys():
         connection.sendall(CACHE[(webserver, target_file)])
         print "Cache Hit"
+        # print "Cache: " + str(CACHE)
     else:
         proxy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         proxy.connect((socket.gethostbyname(webserver), DEFAULT_PORT))
@@ -43,6 +45,7 @@ def handler(connection):
         # Receive new data from webserver
         response = "\n".join(receive_request(proxy))
         CACHE[(webserver, target_file)] = response
+        # print response
         connection.sendall(response)
         proxy.close()
 
@@ -55,9 +58,9 @@ def create_connection(webserver, port):
 
 if __name__ == '__main__':
     server_port = int(sys.argv[1])
+    # server_port = 8181                # Used for testing only
     host_name = socket.gethostname()
     host_ip = socket.gethostbyname(host_name)
-    print host_ip
     s = create_connection(host_ip, server_port)
     s.listen(5)
     print "Listening..."
@@ -66,3 +69,4 @@ if __name__ == '__main__':
         conn, addr = s.accept()
         print 'Server connected by', addr, "\n"
         thread.start_new(handler, (conn,))
+        print "Waiting..."
