@@ -25,39 +25,44 @@ class StopAndWait:
         else:
             self.inflight = util.encode_pkt(self.nextseqnum, msg, config.MSG_TYPE_DATA)
             self.waitforack = True
-            self.timer = Timer(config.TIMEOUT_MSEC / 1000.0, self.timeout)
-            self.timer.start()
-            # print "sent"
+            self.timer_start()
+            # print "sent " + msg
             self.network_layer.send(self.inflight)
             return True
 
-    def timeout(self):
-        print "TIMEOUT"
+    def timer_start(self):
         self.timer = Timer(config.TIMEOUT_MSEC / 1000.0, self.timeout)
         self.timer.start()
+
+    def timeout(self):
+        # print "TIMEOUT: " + str([util.decode_pkt(self.inflight)])
+        self.waitforack = True
+        self.timer_start()
         self.network_layer.send(self.inflight)
 
     def handle_arrival_msg(self):
         msg = self.network_layer.recv()
         msg_type, seqnum, chksum, not_corrupt, msg = util.decode_pkt(msg)
-        # print "Sender: " + str(self.sender) + " " + str(self.nextseqnum) + " " + str(seqnum)
+        # print [seqnum, self.nextseqnum, not_corrupt, msg]
         if not_corrupt and seqnum == self.nextseqnum:
-            if msg_type == config.MSG_TYPE_DATA:
-                # print "received data"
+            if msg_type == config.MSG_TYPE_DATA and not self.sender:
+                # print "received data " + msg
                 self.msg_handler(msg)
-                ackpkt = util.encode_pkt(self.nextseqnum, "", config.MSG_TYPE_ACK)
-                self.nextseqnum += (self.nextseqnum + 1) % 2
-                self.network_layer.send(ackpkt)
-            elif self.waitforack and msg_type == config.MSG_TYPE_ACK:
+                self.inflight = util.encode_pkt(self.nextseqnum, "", config.MSG_TYPE_ACK)
+                self.nextseqnum = (self.nextseqnum + 1) % 2
+                self.network_layer.send(self.inflight)
+            elif self.waitforack and msg_type == config.MSG_TYPE_ACK and self.sender:
                 # print "received ack: " + str(seqnum) + " " + str(msg_type)
                 self.timer.cancel()
                 self.nextseqnum = (self.nextseqnum + 1) % 2
                 self.waitforack = False
             else:
-                print "Fail"
+                print "Fail " + str([msg_type, seqnum, chksum, not_corrupt, msg]) + " isSender: " + str(self.sender)
         elif not self.sender:
-            ackpkt = util.encode_pkt((self.nextseqnum - 1) % 2, "", config.MSG_TYPE_ACK)
-            self.network_layer.send(ackpkt)
+            self.network_layer.send(self.inflight)
+        else:
+            pass
+            # print "Received Ack: " + str(seqnum) + " vs. sent msg num " + str(self.nextseqnum)
 
     def shutdown(self):
         while self.waitforack:

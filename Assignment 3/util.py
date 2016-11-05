@@ -20,6 +20,7 @@ def encode_pkt(seqnum, msg, msg_type):
 
 
 def decode_pkt(msg):
+    # print str([msg[:6][i:i + 2] for i in range(0, 6, 2)])
     msg_type, seqnum, chksum = map(decode_int16, [msg[:6][i:i + 2] for i in range(0, 6, 2)])
     body = msg[6:]
     corrupt_chk = chksum == compute_chksum(seqnum, msg_type, body)
