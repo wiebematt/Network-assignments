@@ -8,7 +8,8 @@ MSG_LOST_PROB = 0.1
 RTT_MSEC = 60
 
 # Parameters for transport protocols.
-TIMEOUT_MSEC = 150
+# Timeout can change
+TIMEOUT_MSEC = 1500
 WINDOWN_SIZE = 20
 
 # Packet size for network layer.
