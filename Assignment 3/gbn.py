@@ -1,7 +1,8 @@
 import util
 import udt
 import config
-from threading import Timer, RLock
+from threading import Timer
+import time
 
 
 # Go-Back-N reliable transport protocol.
@@ -13,13 +14,14 @@ class GoBackN:
         self.waitforack = False
         self.network_layer = udt.NetworkLayer(local_port, remote_port, self)
         self.msg_handler = msg_handler
-        self.base = 1
+        self.base = 0
         self.MAX_SEQNUM = 40
-        self.nextseqnum = 1
-        self.expectedseqnum = 1
+        self.nextseqnum = 0
+        self.expectedseqnum = 0
         self.timer = Timer(config.TIMEOUT_MSEC / 1000.0, self.timeout)
         self.inflight = {}
-        self.lock = True
+        self.lock = False
+        self.sender = local_port == config.SENDER_LISTEN_PORT
 
     def timer_start(self):
         self.timer = Timer(config.TIMEOUT_MSEC / 1000.0, self.timeout)
@@ -39,6 +41,7 @@ class GoBackN:
             self.lock = False
             if self.base == self.nextseqnum:
                 self.timer_start()
+            print "Sending data:" + str(self.nextseqnum)
             self.nextseqnum = (self.nextseqnum + 1) % self.MAX_SEQNUM
             self.network_layer.send(pkt)
             return True
@@ -48,37 +51,47 @@ class GoBackN:
         msg = self.network_layer.recv()
         msg_type, seqnum, chksum, corrupt_chk, msg = util.decode_pkt(msg)
         if corrupt_chk:
-            if msg_type == config.MSG_TYPE_DATA and seqnum == self.expectedseqnum:
-                self.msg_handler(msg)
-                ackpkt = util.encode_pkt(seqnum, "", config.MSG_TYPE_ACK)
-                self.expectedseqnum = (self.expectedseqnum + 1) % self.MAX_SEQNUM
-                self.network_layer.send(ackpkt)
+            if msg_type == config.MSG_TYPE_DATA:
+                print "Seqnum received: " + str(seqnum) + " expected: " + str(self.expectedseqnum)
+                if seqnum == self.expectedseqnum:
+                    self.msg_handler(msg)
+                    ackpkt = util.encode_pkt(seqnum, "", config.MSG_TYPE_ACK)
+                    self.expectedseqnum = (self.expectedseqnum + 1) % self.MAX_SEQNUM
+                    self.network_layer.send(ackpkt)
+                else:
+                    # print "Seqnum received: " + str(seqnum) + " expected: " + str(self.expectedseqnum)
+                    self.network_layer.send(util.encode_pkt(self.expectedseqnum, "", config.MSG_TYPE_ACK))
             elif msg_type == config.MSG_TYPE_ACK:
-                self.timer.cancel()
-                print "ack received"
-                self.base = (seqnum + 1) % self.MAX_SEQNUM
-
-                while self.lock:
-                    pass
-                self.lock = True
-                print "Removing: " + str(seqnum) + " " + self.inflight[seqnum]
-                self.inflight.pop(seqnum)
-                self.lock = False
-
-                if self.base != self.nextseqnum:
-                    print "Timer restart"
-                    self.timer_start()
+                # print "Seqnum #" + str(seqnum)
+                if seqnum in self.inflight:
+                    if self.base == self.nextseqnum:
+                        self.timer.cancel()
+                    else:
+                        self.timer_start()
+                    self.base = (seqnum + 1) % self.MAX_SEQNUM
+                    while self.lock:
+                        pass
+                    self.lock = True
+                    # print "Removing: " + str(seqnum)
+                    self.inflight.pop(seqnum)
+                    self.lock = False
+                else:
+                    print "Seqnum #" + str(seqnum)
 
     def timeout(self):
         while self.lock:
             pass
         self.lock = True
-        for key in self.inflight:
+        print "TIMEOUT KEYS: " + str(self.inflight.keys())
+        for key in self.inflight.keys():
             self.network_layer.send(self.inflight[key])
         self.lock = False
 
     # Cleanup resources.
     def shutdown(self):
-        while len(self.inflight.keys()):
-            pass
+        print "Shutdown requested " + str(self.inflight.keys())
+        # while len(self.inflight.keys()):
+        #     self.timeout()
+        #     time.sleep(1)
+        self.timeout()
         self.network_layer.shutdown()
