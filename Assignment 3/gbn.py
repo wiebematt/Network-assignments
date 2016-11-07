@@ -17,7 +17,6 @@ class GoBackN:
         self.base = 0
         self.MAX_SEQNUM = 40
         self.nextseqnum = 0
-        self.expectedseqnum = 0
         self.timer = Timer(config.TIMEOUT_MSEC / 1000.0, self.timeout)
         self.inflight = {}
         self.lock = False
@@ -51,26 +50,30 @@ class GoBackN:
         msg_type, seqnum, chksum, corrupt_chk, msg = util.decode_pkt(msg)
         if corrupt_chk:
             if msg_type == config.MSG_TYPE_DATA:
-                if seqnum == self.expectedseqnum:
+                # receiver
+                if seqnum == self.nextseqnum:
                     self.msg_handler(msg)
                     ackpkt = util.encode_pkt(seqnum, "", config.MSG_TYPE_ACK)
-                    print "Seqnum received: " + str(seqnum) + " expected: " + str(self.expectedseqnum)
-                    self.expectedseqnum = (self.expectedseqnum + 1) % self.MAX_SEQNUM
+                    # print "Seqnum received: " + str(seqnum) + " expected: " + str(self.nextseqnum)
                     self.network_layer.send(ackpkt)
-                else:
+                    self.nextseqnum = (self.nextseqnum + 1) % self.MAX_SEQNUM
+                    # else:
                     # print "Seqnum received: " + str(seqnum) + " expected: " + str(self.expectedseqnum)
                     # not handling ack incrementation
-                    self.network_layer.send(util.encode_pkt(self.expectedseqnum, "", config.MSG_TYPE_ACK))
+                    # self.network_layer.send(util.encode_pkt(self.nextseqnum, "", config.MSG_TYPE_ACK))
             elif msg_type == config.MSG_TYPE_ACK:
+                # sender
                 print "Seqnum #" + str(seqnum) + " base: " + str(self.base)
-                if seqnum in self.inflight and seqnum == self.base:
-                    self.base = (seqnum + 1) % self.MAX_SEQNUM
-                    while self.lock:
-                        pass
-                    self.lock = True
-                    # print "Removing: " + str(seqnum)
-                    self.inflight.pop(seqnum)
-                    self.lock = False
+                self.base = (seqnum + 1) % self.MAX_SEQNUM
+                while self.lock:
+                    pass
+                self.lock = True
+                # cumulative acknowledgement
+                print self.inflight.keys()
+                for key in self.inflight.keys():
+                    if int(key) <= seqnum:
+                        self.inflight.pop(key)
+                self.lock = False
 
                 if self.base == self.nextseqnum:
                     self.timer.cancel()
@@ -81,7 +84,7 @@ class GoBackN:
         while self.lock:
             pass
         self.lock = True
-        print "TIMEOUT KEYS: " + str(self.inflight.keys())
+        # print "TIMEOUT KEYS: " + str(self.inflight.keys())
         for key in self.inflight.keys():
             self.network_layer.send(self.inflight[key])
         self.lock = False
@@ -89,8 +92,6 @@ class GoBackN:
     # Cleanup resources.
     def shutdown(self):
         print "Shutdown requested " + str(self.inflight.keys())
-        # while len(self.inflight.keys()):
-        #     self.timeout()
-        #     time.sleep(1)
+        # while len(self.inflight) > 0:
         self.timeout()
         self.network_layer.shutdown()
