@@ -67,4 +67,5 @@ class StopAndWait:
     def shutdown(self):
         while self.waitforack:
             pass
+        self.timeout()
         self.network_layer.shutdown()

@@ -41,7 +41,6 @@ class GoBackN:
             self.lock = False
             if self.base == self.nextseqnum:
                 self.timer_start()
-            print "Sending data:" + str(self.nextseqnum)
             self.nextseqnum = (self.nextseqnum + 1) % self.MAX_SEQNUM
             self.network_layer.send(pkt)
             return True
@@ -52,22 +51,19 @@ class GoBackN:
         msg_type, seqnum, chksum, corrupt_chk, msg = util.decode_pkt(msg)
         if corrupt_chk:
             if msg_type == config.MSG_TYPE_DATA:
-                print "Seqnum received: " + str(seqnum) + " expected: " + str(self.expectedseqnum)
                 if seqnum == self.expectedseqnum:
                     self.msg_handler(msg)
                     ackpkt = util.encode_pkt(seqnum, "", config.MSG_TYPE_ACK)
+                    print "Seqnum received: " + str(seqnum) + " expected: " + str(self.expectedseqnum)
                     self.expectedseqnum = (self.expectedseqnum + 1) % self.MAX_SEQNUM
                     self.network_layer.send(ackpkt)
                 else:
                     # print "Seqnum received: " + str(seqnum) + " expected: " + str(self.expectedseqnum)
+                    # not handling ack incrementation
                     self.network_layer.send(util.encode_pkt(self.expectedseqnum, "", config.MSG_TYPE_ACK))
             elif msg_type == config.MSG_TYPE_ACK:
-                # print "Seqnum #" + str(seqnum)
-                if seqnum in self.inflight:
-                    if self.base == self.nextseqnum:
-                        self.timer.cancel()
-                    else:
-                        self.timer_start()
+                print "Seqnum #" + str(seqnum) + " base: " + str(self.base)
+                if seqnum in self.inflight and seqnum == self.base:
                     self.base = (seqnum + 1) % self.MAX_SEQNUM
                     while self.lock:
                         pass
@@ -75,8 +71,11 @@ class GoBackN:
                     # print "Removing: " + str(seqnum)
                     self.inflight.pop(seqnum)
                     self.lock = False
+
+                if self.base == self.nextseqnum:
+                    self.timer.cancel()
                 else:
-                    print "Seqnum #" + str(seqnum)
+                    self.timer_start()
 
     def timeout(self):
         while self.lock:

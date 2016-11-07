@@ -10,7 +10,7 @@ RTT_MSEC = 60
 # Parameters for transport protocols.
 # Timeout can change
 TIMEOUT_MSEC = 150
-WINDOWN_SIZE = 20
+WINDOWN_SIZE = 5
 
 # Packet size for network layer.
 MAX_SEGMENT_SIZE = 512
