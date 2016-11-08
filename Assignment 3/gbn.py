@@ -12,13 +12,14 @@ class GoBackN:
     def __init__(self, local_port, remote_port, msg_handler):
         self.network_layer = udt.NetworkLayer(local_port, remote_port, self)
         self.msg_handler = msg_handler
-        self.base = 1
-        self.nextseqnum = 1
+        self.base = 0
+        self.nextseqnum = 0
         self.timer = None
-        self.inflight = {}
+        self.inflight = []
         self.ackpkt = util.encode_pkt(0, "", config.MSG_TYPE_ACK)
         self.lock = False
         self.sender = local_port == config.SENDER_LISTEN_PORT
+        self.shutdown_flag = False
 
     def timer_start(self):
         self.timer = Timer(config.TIMEOUT_MSEC / 1000.0, self.timeout)
@@ -27,16 +28,19 @@ class GoBackN:
     # "send" is called by application. Return true on success, false
     # otherwise.
     def send(self, msg):
-        if len(msg) <= config.MAX_MESSAGE_SIZE or self.nextseqnum < self.base + config.WINDOWN_SIZE:
+        if len(msg) <= config.MAX_MESSAGE_SIZE and self.nextseqnum < self.base + config.WINDOWN_SIZE:
             pkt = util.encode_pkt(self.nextseqnum, msg, config.MSG_TYPE_DATA)
             while self.lock:
                 pass
             self.lock = True
-            self.inflight[self.nextseqnum] = pkt
+            if len(self.inflight) == config.WINDOWN_SIZE:
+                self.inflight[self.nextseqnum % config.WINDOWN_SIZE] = pkt
+            else:
+                self.inflight.append(pkt)
             self.lock = False
             if self.base == self.nextseqnum:
                 self.timer_start()
-            self.nextseqnum = (self.nextseqnum + 1) % config.WINDOWN_SIZE
+            self.nextseqnum += 1
             self.network_layer.send(pkt)
             return True
         else:
@@ -49,68 +53,44 @@ class GoBackN:
         if corrupt_chk:
             if msg_type == config.MSG_TYPE_DATA:
                 # receiver
-
                 if seqnum == self.nextseqnum:
                     self.msg_handler(msg)
                     self.ackpkt = util.encode_pkt(self.nextseqnum, "", config.MSG_TYPE_ACK)
+                    print "Sent ack " + str(self.nextseqnum)
                     self.network_layer.send(self.ackpkt)
-                    self.nextseqnum = (self.nextseqnum + 1) % config.WINDOWN_SIZE
+                    self.nextseqnum += 1
                 else:
                     self.network_layer.send(self.ackpkt)
             elif msg_type == config.MSG_TYPE_ACK:
                 # sender
-                self.base = (seqnum + 1) % config.WINDOWN_SIZE
-                while self.lock:
-                    pass
-                self.lock = True
-                for key in self.inflight:
-                    pass
-                self.lock = False
+
+                self.base = seqnum + 1
+                if self.base == self.nextseqnum:
+                    self.timer.cancel()
+                else:
+                    self.timer.cancel()
+                    self.timer_start()
             else:
                 if not self.sender:
                     self.network_layer.send(self.ackpkt)
-                    # if msg_type == config.MSG_TYPE_DATA:
-                    #     # receiver
-                    #     if seqnum == self.nextseqnum:
-                    #         self.msg_handler(msg)
-                    #         ackpkt = util.encode_pkt(seqnum, "", config.MSG_TYPE_ACK)
-                    #
-                    #         self.network_layer.send(ackpkt)
-                    #         self.nextseqnum = (self.nextseqnum + 1) % config.WINDOWN_SIZE
-                    # #
-                    # elif msg_type == config.MSG_TYPE_ACK:
-                    #     # sender
-                    #     # print "Seqnum #" + str(seqnum) + " base: " + str(self.base)
-                    #     self.base = (seqnum + 1) % config.WINDOWN_SIZE
-                    #     while self.lock:
-                    #         pass
-                    #     self.lock = True
-                    #     # cumulative acknowledgement
-                    #     print self.inflight.keys()
-                    #     cum_ack = (seqnum + config.WINDOWN_SIZE -1) % config.WINDOWN_SIZE
-                    #     for key in self.inflight.keys():
-                    #         if int(key) <= seqnum:
-                    #             self.inflight.pop(key)
-                    #             print "removed " + str(key)
-                    #     self.lock = False
-                    #
-                    #     if self.base == self.nextseqnum:
-                    #         self.timer.cancel()
-                    #     else:
-                    #         self.timer_start()
 
     def timeout(self):
         while self.lock:
             pass
         self.lock = True
-        print "TIMEOUT KEYS: " + str(self.inflight.keys())
-        for key in self.inflight.keys():
-            self.network_layer.send(self.inflight[key])
+        print "Base: " + str(self.base) + " Nextseqnum: " + str(self.nextseqnum)
+        current = self.base
+        while True:
+            # print current
+            self.network_layer.send(self.inflight[current % config.WINDOWN_SIZE])
+            current += 1
+            if current == self.nextseqnum:
+                break
         self.lock = False
 
     # Cleanup resources.
     def shutdown(self):
-        print "Shutdown requested " + str(self.inflight.keys())
-        for i in range(len(self.inflight)):
-            self.timeout()
+        self.shutdown_flag = True
+        while self.base != self.nextseqnum:
+            pass
         self.network_layer.shutdown()
