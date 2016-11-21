@@ -102,15 +102,11 @@ class Router:
 
     def load_config(self):
         assert os.path.isfile(self._config_filename)
-        if self._file_time != os.stat(self._config_filename).st_mtime:
-            # self._init_route_table()
-            print "File change"
-        with open(self._config_filename, 'r') as f:
-            router_id = int(f.readline().strip())
-            # Only set router_id when first initialize.
-            if not self._router_id:
-                self._socket.bind(('localhost', _ToPort(router_id)))
-                self._router_id = router_id
+        # if self._file_time != os.stat(self._config_filename).st_mtime:
+        #     self._file_time = os.stat(self._config_filename).st_mtime
+        #     self._init_route_table()
+        # print "File change"
+        # self._init_route_table()
 
         print self._forwarding_table.__str__()
         for router in self.neighbor_routers:
@@ -121,7 +117,7 @@ class Router:
         with open(self._config_filename, 'r') as f:
             router_id = int(f.readline().strip())
             if not self._router_id:
-                # self._socket.bind(('localhost', _ToPort(router_id)))
+                self._socket.bind(('localhost', _ToPort(router_id)))
                 self._router_id = router_id
             # target router, next router , cost
             neighbors = [(item[0], item[0], item[1]) for item in
@@ -146,10 +142,8 @@ class Router:
 
         dv_changes = []
         for router in get_target_routers_from_list(update_list):
-
-            # print "Getting old cost"
+            # if router != self._router_id:
             old_dv = get_cost_of_route(router, snapshot)
-            # print "Getting new cost"
             new_dv = get_cost_of_route(msg_router, snapshot) + get_cost_of_route(router, update_list)
             if new_dv < old_dv:
                 print "Change occured " + ", ".join((str(router), str(msg_router), str(new_dv)))
@@ -164,7 +158,7 @@ class Router:
                 print "After append : " + str(snapshot)
 
             self.route_lock.acquire()
-            self.broadcast_msg = util.encode_message(filter(lambda x: x[0] != self._router_id, snapshot))
+            self.broadcast_msg = util.encode_message(snapshot)
             self._forwarding_table.reset(snapshot)
             self.route_lock.release()
 
