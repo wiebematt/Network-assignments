@@ -10,7 +10,7 @@ _CONFIG_UPDATE_INTERVAL_SEC = 5
 
 _MAX_UPDATE_MSG_SIZE = 1024
 _BASE_ID = 8000
-_MAX_SHORT = 65534
+_MAX_SHORT = 6534
 
 
 def _ToPort(router_id):
@@ -23,12 +23,10 @@ def _ToRouterId(port):
 
 def get_cost_of_route(target_router, snapshot):
     # print "Getting " + str(target_router) + " from " + str(snapshot)
-    return filter(lambda x: x[0] == target_router, snapshot)[0][-1]
-
-
-def get_target_routers_from_list(router_list):
-    return map(lambda x: x[0], router_list)
-
+    hasroute = filter(lambda x: x[0] == target_router, snapshot)
+    if not len(hasroute):
+        return _MAX_SHORT
+    return hasroute[0][-1]
 
 #
 # def add_to_each_row(snapshot, known_routers, unknown_routers):
@@ -64,14 +62,13 @@ class Router:
         # Config file has router_id, neighbors, and link cost to reach
         # them.
         self._config_filename = config_filename
-        self._file_time = os.stat(config_filename).st_mtime
         self._router_id = None
         # Socket used to send/recv update messages (using UDP).
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.route_lock = threading.Lock()
         self.thread_list = []
         self.known_routers = []
-        self.neighbor_routers = []
+        self.neighbor_dv = {}
         self.broadcast_msg = ""
 
     def start(self):
@@ -101,35 +98,34 @@ class Router:
         self._socket.close()
 
     def load_config(self):
-        assert os.path.isfile(self._config_filename)
-        # if self._file_time != os.stat(self._config_filename).st_mtime:
-        #     self._file_time = os.stat(self._config_filename).st_mtime
-        #     self._init_route_table()
-        # print "File change"
-        # self._init_route_table()
+        self._init_route_table()
 
         print self._forwarding_table.__str__()
-        for router in self.neighbor_routers:
+        for router in self.neighbor_dv.keys():
             self._socket.sendto(self.broadcast_msg, ('localhost', _ToPort(router)))
 
     def _init_route_table(self):
         assert os.path.isfile(self._config_filename)
         with open(self._config_filename, 'r') as f:
             router_id = int(f.readline().strip())
-            if not self._router_id:
-                self._socket.bind(('localhost', _ToPort(router_id)))
-                self._router_id = router_id
-            # target router, next router , cost
+            #  Make tuples for each neighbor
             neighbors = [(item[0], item[0], item[1]) for item in
                          [[int(j) for j in line.strip().split(",")] for line in f]]
-        self.neighbor_routers = map(lambda x: x[0], neighbors)
-        self.broadcast_msg = util.encode_message(neighbors)
-        neighbors.append((self._router_id, self._router_id, 0))
-        self.known_routers = [self._router_id] + self.neighbor_routers
-        # Computes the initial snapshot
-        self.route_lock.acquire()
-        self._forwarding_table.reset(neighbors)
-        self.route_lock.release()
+            self.broadcast_msg = util.encode_message(neighbors)
+            if not self._router_id:
+                # set up socket, router id, and neighbor distance vector
+                self._socket.bind(('localhost', _ToPort(router_id)))
+                self._router_id = router_id
+                neighbor_routers = map(lambda x: x[0], neighbors)
+                for router in neighbor_routers:
+                    self.neighbor_dv[router] = []
+                self.known_routers = [self._router_id] + neighbor_routers
+            # add route to this router
+            neighbors.append((self._router_id, self._router_id, 0))
+            # Computes the initial snapshot
+            self.route_lock.acquire()
+            self._forwarding_table.reset(neighbors)
+            self.route_lock.release()
 
     def receiver_msg(self, data):
         return util.read_message(data)
@@ -138,33 +134,36 @@ class Router:
         # Discover new routers while keeping routers that I know about
         #  update list [(target router, cost)]
         snapshot = self._forwarding_table.snapshot()
-        # snapshot = self.discover_new_routers(snapshot, update_list, msg_router)
-
+        self.neighbor_dv[msg_router] = update_list
         dv_changes = []
-        for router in get_target_routers_from_list(update_list):
-            # if router != self._router_id:
-            old_dv = get_cost_of_route(router, snapshot)
-            new_dv = get_cost_of_route(msg_router, snapshot) + get_cost_of_route(router, update_list)
-            if new_dv < old_dv:
-                print "Change occured " + ", ".join((str(router), str(msg_router), str(new_dv)))
-                dv_changes.append((router, msg_router, new_dv))
-        if dv_changes:
-            for entry in dv_changes:
-                print "Before change : " + str(snapshot)
-                # snapshot.pop(get_removal_index(entry, snapshot))
-                snapshot = filter(lambda x: x[0] != entry[0], snapshot)
-                print "After pop : " + str(snapshot)
-                snapshot.append(entry)
-                print "After append : " + str(snapshot)
+        for target_router in map(lambda x: x[0], update_list):
+            best_dv = get_cost_of_route(target_router, snapshot)
+            new_hop = 0
+            for neighbor in self.neighbor_dv.keys():
+                cost = get_cost_of_route(target_router, self.neighbor_dv[neighbor]) + get_cost_of_route(neighbor,
+                                                                                                        snapshot)
+                if cost < best_dv:
+                    best_dv = cost
+                    new_hop = neighbor
+            if new_hop:
+                dv_changes.append((target_router, new_hop, best_dv))
+
+        for entry in dv_changes:
+            print "Before change : " + str(snapshot)
+            # snapshot.pop(get_removal_index(entry, snapshot))
+            snapshot = filter(lambda x: x[0] != entry[0], snapshot)
+            print "After pop : " + str(snapshot)
+            snapshot.append(entry)
+            print "After append : " + str(snapshot)
 
             self.route_lock.acquire()
             self.broadcast_msg = util.encode_message(snapshot)
             self._forwarding_table.reset(snapshot)
             self.route_lock.release()
 
-    def discover_new_routers(self, snapshot, update_list, next_hop):
-        unknown_routers = filter(lambda x: x[0] in self.known_routers, update_list)
-        for target_router, cost in unknown_routers:
-            snapshot.append((target_router, next_hop, cost))
-            self.known_routers.append(target_router)
-        return snapshot
+            # def discover_new_routers(self, snapshot, update_list, next_hop):
+            #     unknown_routers = filter(lambda x: x[0] in self.known_routers, update_list)
+            #     for target_router, cost in unknown_routers:
+            #         snapshot.append((target_router, next_hop, cost))
+            #         self.known_routers.append(target_router)
+            #     return snapshot
