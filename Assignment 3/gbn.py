@@ -19,7 +19,7 @@ class GoBackN:
         self.ackpkt = util.encode_pkt(0, "", config.MSG_TYPE_ACK)
         self.lock = False
         self.sender = local_port == config.SENDER_LISTEN_PORT
-        self.shutdown_flag = False
+        self.shutdown_timer = None
 
     def timer_start(self):
         self.timer = Timer(config.TIMEOUT_MSEC / 1000.0, self.timeout)
@@ -56,7 +56,7 @@ class GoBackN:
                 if seqnum == self.nextseqnum:
                     self.msg_handler(msg)
                     self.ackpkt = util.encode_pkt(self.nextseqnum, "", config.MSG_TYPE_ACK)
-                    print "Sent ack " + str(self.nextseqnum)
+                    # print "Sent ack " + str(self.nextseqnum)
                     self.network_layer.send(self.ackpkt)
                     self.nextseqnum += 1
                 else:
@@ -78,19 +78,25 @@ class GoBackN:
         while self.lock:
             pass
         self.lock = True
-        print "Base: " + str(self.base) + " Nextseqnum: " + str(self.nextseqnum)
+        # print "Base: " + str(self.base) + " Nextseqnum: " + str(self.nextseqnum)
         current = self.base
         while True:
             # print current
-            self.network_layer.send(self.inflight[current % config.WINDOWN_SIZE])
+            try:
+                self.network_layer.send(self.inflight[current % config.WINDOWN_SIZE])
+            except IndexError:
+                pass
             current += 1
             if current == self.nextseqnum:
                 break
         self.lock = False
+        self.timer_start()
 
     # Cleanup resources.
     def shutdown(self):
-        self.shutdown_flag = True
-        while self.base != self.nextseqnum:
-            pass
-        self.network_layer.shutdown()
+        # print "shutdown active"
+        if self.base == self.nextseqnum:
+            self.network_layer.shutdown()
+        else:
+            self.shutdown_timer = Timer(config.TIMEOUT_MSEC + 10 / 1000.0, self.shutdown)
+            self.shutdown_timer.start()
